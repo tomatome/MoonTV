@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console, @next/next/no-img-element */
 
 'use client';
-import { Heart } from 'lucide-react';
+import { Download, Heart } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
@@ -28,6 +28,7 @@ import {
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 
+import AddDownloadModal from '@/components/AddDownloadModal';
 import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import { triggerGlobalError } from '@/components/GlobalErrorIndicator';
@@ -68,6 +69,9 @@ function PlayPageClient() {
 
   // 收藏状态
   const [favorited, setFavorited] = useState(false);
+
+  // 添加下载弹窗状态
+  const [showAddDownload, setShowAddDownload] = useState(false);
 
   // 跳过片头片尾配置
   const [skipConfig, setSkipConfig] = useState<{
@@ -283,7 +287,7 @@ function PlayPageClient() {
     MARGIN: {},
     SPEED: {},
     COLOR: [],
-    beforeEmit(danmu: any) {
+    beforeEmit(_danmu: any) {
       return new Promise((resolve) => {
         setTimeout(() => {
           resolve(true);
@@ -601,6 +605,12 @@ function PlayPageClient() {
   // Wake Lock 相关函数
   const requestWakeLock = async () => {
     try {
+      // 检查页面是否可见
+      if (document.hidden) {
+        console.log('页面不可见，跳过 Wake Lock 请求');
+        return;
+      }
+      
       if ('wakeLock' in navigator) {
         wakeLockRef.current = await (navigator as any).wakeLock.request(
           'screen'
@@ -1017,71 +1027,84 @@ function PlayPageClient() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    (async () => {
+    // 获取尝试次数设置
+    let retryCount = 3;
+    try {
+      const saved = localStorage.getItem('danmakuRetryCount');
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed)) retryCount = parsed;
+      }
+    } catch {
+      // ignore
+    }
+
+    let attempt = 0;
+    let success = false;
+
+    const fetchDanmaku = async () => {
       setIsDanmakuLoading(true);
-      try {
-        const title = videoTitleRef.current;
-
-        const currentEpisodeTitle = detail?.episodes_titles?.[currentEpisodeIndex];
-
-        if (!currentEpisodeTitle) {
-          throw new Error("无法获取当前集数标题（episodes_titles 无效）");
-        }
-    
-        // 从当前集数标题中提取集数
-        let epNum = extractEpisodeNumber(currentEpisodeTitle);
-        if (!epNum) {
-          epNum = currentEpisodeIndex + 1;
-        }
-
-        const platform = preferredDanmakuPlatform;
-
-        const season = extractSeasonFromTitle(title);
-        const fileName = `${title} S${season}E${epNum} @${platform}`;
-
-        const matches = await matchAnime(fileName, abortController.signal);
-        console.log("初始化自动匹配:", matches);
-
-        // 如果请求已被取消，则忽略结果
-        if (abortController.signal.aborted) return;
-
-        if (matches.length > 0) {
-          const m = matches[0];
-
-          const animeOption = {
-            animeId: m.animeId,
-            animeTitle: m.animeTitle,
-            type: m.type,
-            typeDescription: m.typeDescription,
-            episodeCount: 1,
-            episodes: [
-              {
-                episodeId: m.episodeId,
-                episodeTitle: m.episodeTitle,
-              },
-            ],
-          };
-
-          setSelectedDanmakuAnime(animeOption);
-          setSelectedDanmakuSource(platform);
-
-        } else {
-          triggerGlobalError("自动加载弹幕失败，请手动选择弹幕源");
-        }
-      } catch (err) {
-        // 如果是取消错误，不显示错误
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          console.log('自动加载弹幕已取消');
-          return;
-        }
-        console.error("初始化自动加载弹幕失败:", err);
-        triggerGlobalError("自动加载弹幕失败，请手动选择弹幕源");
-      } finally {
-        if (!abortController.signal.aborted) {
-          setIsDanmakuLoading(false);
+      while (!success && (retryCount === -1 || attempt <= retryCount)) {
+        attempt++;
+        try {
+          const title = videoTitleRef.current;
+          const currentEpisodeTitle = detail?.episodes_titles?.[currentEpisodeIndex];
+          if (!currentEpisodeTitle) {
+            throw new Error("无法获取当前集数标题（episodes_titles 无效）");
+          }
+          let epNum = extractEpisodeNumber(currentEpisodeTitle);
+          if (!epNum) {
+            epNum = currentEpisodeIndex + 1;
+          }
+          const platform = preferredDanmakuPlatform;
+          const season = extractSeasonFromTitle(title);
+          const fileName = `${title} S${season}E${epNum} @${platform}`;
+          const matches = await matchAnime(fileName, abortController.signal);
+          console.log(`自动弹幕匹配尝试第${attempt}次:`, matches);
+          if (abortController.signal.aborted) return;
+          if (matches.length > 0) {
+            const m = matches[0];
+            const animeOption = {
+              animeId: m.animeId,
+              animeTitle: m.animeTitle,
+              type: m.type,
+              typeDescription: m.typeDescription,
+              episodeCount: 1,
+              episodes: [
+                {
+                  episodeId: m.episodeId,
+                  episodeTitle: m.episodeTitle,
+                },
+              ],
+            };
+            setSelectedDanmakuAnime(animeOption);
+            setSelectedDanmakuSource(platform);
+            success = true;
+            break;
+          } else {
+            if (retryCount === -1 || attempt <= retryCount) {
+              await new Promise(res => setTimeout(res, 1500)); // 间隔1.5秒重试
+            }
+          }
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            console.log('自动加载弹幕已取消');
+            return;
+          }
+          console.error(`自动弹幕匹配第${attempt}次失败:`, err);
+          if (retryCount === -1 || attempt <= retryCount) {
+            await new Promise(res => setTimeout(res, 1500));
+          }
         }
       }
-    })();
+      if (!success) {
+        triggerGlobalError("自动加载弹幕失败，请手动选择弹幕源");
+      }
+      if (!abortController.signal.aborted) {
+        setIsDanmakuLoading(false);
+      }
+    };
+    fetchDanmaku();
 
     // 清理函数：当依赖项变化或组件卸载时中止请求
     return () => {
@@ -1249,17 +1272,30 @@ function PlayPageClient() {
   // 集数切换
   // ---------------------------------------------------------------------------
   // 处理集数切换
-  const handleEpisodeChange = (episodeNumber: number) => {
+  const handleEpisodeChange = async (episodeNumber: number) => {
     if (episodeNumber === currentEpisodeIndexRef.current) return;
     if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
       // 在更换集数前保存当前播放进度
       if (artPlayerRef.current && artPlayerRef.current.paused) {
         saveCurrentPlayProgress();
       }
-      if(artPlayerRef.current){
+      if (artPlayerRef.current) {
         cleanupPlayer();
         setIsDanmakuPluginReady(false);
         setCurrentTooltip("");
+      }
+      // 检查是否有历史播放记录
+      try {
+        const allRecords = await getAllPlayRecords();
+        const key = generateStorageKey(currentSourceRef.current, currentIdRef.current);
+        const record = allRecords[key];
+        if (record && record.index - 1 === episodeNumber && record.play_time > 0) {
+          resumeTimeRef.current = record.play_time;
+        } else {
+          resumeTimeRef.current = 0;
+        }
+      } catch {
+        resumeTimeRef.current = 0;
       }
       setCurrentEpisodeIndex(episodeNumber);
     }
@@ -1895,7 +1931,9 @@ function PlayPageClient() {
           if (danmukuPluginInstanceRef.current) {
             try {
               danmukuPluginInstanceRef.current.config(danmakuConfigRef.current);
-            } catch (_) {}
+            } catch (_) {
+              // ignore
+            }
           }
         }
 
@@ -1912,7 +1950,9 @@ function PlayPageClient() {
               artPlayerRef.current.fullscreen = true;
             }, 0);
           }
-        } catch (_) {}
+        } catch (_) {
+          // ignore
+        }
       });
 
       // 监听播放状态变化，控制 Wake Lock
@@ -2037,7 +2077,7 @@ function PlayPageClient() {
         const idx = currentEpisodeIndexRef.current;
         if (d && d.episodes && idx < d.episodes.length - 1) {
           setTimeout(() => {
-            setCurrentEpisodeIndex(idx + 1);
+            handleNextEpisode();
           }, 1000);
         }
       });
@@ -2079,6 +2119,19 @@ function PlayPageClient() {
 
   // 当组件卸载时清理定时器、Wake Lock 和播放器资源
   useEffect(() => {
+    // 监听页面可见性变化
+    const handleVisibilityChange = () => {
+      if (!document.hidden && artPlayerRef.current && !artPlayerRef.current.paused) {
+        // 页面变为可见且视频正在播放时，重新请求 Wake Lock
+        requestWakeLock();
+      } else if (document.hidden) {
+        // 页面隐藏时，释放 Wake Lock（系统会自动释放，但我们也主动释放）
+        releaseWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       // 清理定时器
       if (saveIntervalRef.current) {
@@ -2087,6 +2140,9 @@ function PlayPageClient() {
 
       // 释放 Wake Lock
       releaseWakeLock();
+
+      // 移除可见性监听
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
 
       // 销毁播放器实例
       cleanupPlayer();
@@ -2398,6 +2454,16 @@ function PlayPageClient() {
                 >
                   <FavoriteIcon filled={favorited} />
                 </button>
+                {/* 下载按钮 */}
+                {videoUrl && (
+                  <button
+                    onClick={() => setShowAddDownload(true)}
+                    className='ml-3 flex-shrink-0 bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 hover:scale-[1.1] transition-all duration-300 ease-out shadow-md'
+                    title='下载视频'
+                  >
+                    <Download className='h-4 w-4' />
+                  </button>
+                )}
                 {/* 豆瓣链接按钮 */}
                 {videoDoubanId !== 0 && (
                   <a
@@ -2455,6 +2521,26 @@ function PlayPageClient() {
           </div>
         </div>
       </div>
+
+      {/* 添加下载弹窗 */}
+      <AddDownloadModal
+        isOpen={showAddDownload}
+        onClose={() => setShowAddDownload(false)}
+        onAddTask={(config) => {
+          // 触发自定义事件，通知导航栏的下载管理器
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('addDownloadTask', { detail: config }));
+          }
+          setShowAddDownload(false);
+        }}
+        initialUrl={videoUrl || ''}
+        initialTitle={`${videoTitle}${
+          totalEpisodes > 1
+            ? `_${detail?.episodes_titles?.[currentEpisodeIndex] || `第${currentEpisodeIndex + 1}集`}`
+            : ''
+        }`}
+        skipConfig={skipConfig}
+      />
     </PageLayout>
   );
 }
