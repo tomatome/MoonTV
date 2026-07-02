@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { getLiveGroups, LiveGroup, LiveSource } from '@/lib/config';
+import { getLiveGroups, LiveGroup, LiveSource } from '@/lib/live';
 import Hls from 'hls.js';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
