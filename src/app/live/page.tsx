@@ -51,7 +51,8 @@ export default function LivePage() {
   const selectGroup = (groupName: string) => {
     setSelectedGroup(groupName);
     if (!expandedGroups.has(groupName)) {
-      setExpandedGroups(new Set([...expandedGroups, groupName]));
+      // 修正：避免直接展开 Set，使用 Array.from
+      setExpandedGroups(new Set(Array.from(expandedGroups).concat(groupName)));
     }
     const group = groups.find(g => g.groupName === groupName);
     if (group) {
@@ -70,7 +71,6 @@ export default function LivePage() {
     setPlayError(null);
     if (sources.length > 0) {
       setCurrentSource(sources[0]);
-      // 尝试立即播放（可能会被阻止，但会被缓存）
       const video = videoRef.current;
       if (video) {
         video.play().catch(() => {});
@@ -83,7 +83,6 @@ export default function LivePage() {
     if (currentSource?.url === source.url) return;
     setCurrentSource(source);
     setPlayError(null);
-    // 立即尝试播放
     const video = videoRef.current;
     if (video) {
       video.play().catch(() => {});
@@ -105,7 +104,6 @@ export default function LivePage() {
     const video = videoRef.current;
     if (!video) return;
 
-    // 清理旧的 HLS 实例
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -113,7 +111,6 @@ export default function LivePage() {
     setIsPlayerReady(false);
     setPlayError(null);
 
-    // 如果浏览器支持 HLS
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -138,7 +135,6 @@ export default function LivePage() {
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari 原生 HLS
       video.src = url;
       video.addEventListener('loadedmetadata', () => {
         setIsPlayerReady(true);
@@ -159,7 +155,6 @@ export default function LivePage() {
     };
   }, [currentSource]);
 
-  // 获取当前组和当前频道的源
   const getCurrentGroup = () => groups.find(g => g.groupName === selectedGroup);
   const getCurrentChannelSources = () => {
     const group = getCurrentGroup();
