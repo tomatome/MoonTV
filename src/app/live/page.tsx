@@ -13,16 +13,16 @@ export default function LivePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 当前选中的分组、频道、源
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedChannel, setSelectedChannel] = useState<string>('');
   const [currentSources, setCurrentSources] = useState<LiveSource[]>([]);
   const [currentSource, setCurrentSource] = useState<LiveSource | null>(null);
 
-  // 分组展开/折叠状态
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [playError, setPlayError] = useState<string | null>(null);
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
 
-  // 加载直播源数据
+  // 加载数据
   useEffect(() => {
     getLiveGroups().then((data) => {
       if (data.length === 0) {
@@ -31,13 +31,9 @@ export default function LivePage() {
         return;
       }
       setGroups(data);
-
-      // 默认选中第一个分组，并展开它
       const firstGroup = data[0];
       setSelectedGroup(firstGroup.groupName);
       setExpandedGroups(new Set([firstGroup.groupName]));
-
-      // 默认选中该分组的第一个频道
       const firstChannel = firstGroup.channels.keys().next().value;
       if (firstChannel) {
         const sources = firstGroup.channels.get(firstChannel) || [];
@@ -54,23 +50,15 @@ export default function LivePage() {
   // 切换分组
   const selectGroup = (groupName: string) => {
     setSelectedGroup(groupName);
-    // 自动展开该分组
     if (!expandedGroups.has(groupName)) {
-      const newSet = new Set(expandedGroups);
-      newSet.add(groupName);
-      setExpandedGroups(newSet);
+      setExpandedGroups(new Set([...expandedGroups, groupName]));
     }
-    // 选中该分组的第一个频道
     const group = groups.find(g => g.groupName === groupName);
     if (group) {
       const firstChannel = group.channels.keys().next().value;
       if (firstChannel) {
         const sources = group.channels.get(firstChannel) || [];
-        setSelectedChannel(firstChannel);
-        setCurrentSources(sources);
-        if (sources.length > 0) {
-          setCurrentSource(sources[0]);
-        }
+        selectChannel(firstChannel, sources);
       }
     }
   };
@@ -79,8 +67,14 @@ export default function LivePage() {
   const selectChannel = (channelName: string, sources: LiveSource[]) => {
     setSelectedChannel(channelName);
     setCurrentSources(sources);
+    setPlayError(null);
     if (sources.length > 0) {
       setCurrentSource(sources[0]);
+      // 尝试立即播放（可能会被阻止，但会被缓存）
+      const video = videoRef.current;
+      if (video) {
+        video.play().catch(() => {});
+      }
     }
   };
 
@@ -88,9 +82,15 @@ export default function LivePage() {
   const selectSource = (source: LiveSource) => {
     if (currentSource?.url === source.url) return;
     setCurrentSource(source);
+    setPlayError(null);
+    // 立即尝试播放
+    const video = videoRef.current;
+    if (video) {
+      video.play().catch(() => {});
+    }
   };
 
-  // 切换分组展开/折叠
+  // 展开/折叠分组
   const toggleGroup = (groupName: string) => {
     const newSet = new Set(expandedGroups);
     if (newSet.has(groupName)) newSet.delete(groupName);
@@ -98,19 +98,22 @@ export default function LivePage() {
     setExpandedGroups(newSet);
   };
 
-  // 当 currentSource 变化时播放
+  // 当 currentSource 变化时重新初始化 HLS
   useEffect(() => {
     if (!currentSource) return;
     const { url } = currentSource;
     const video = videoRef.current;
     if (!video) return;
 
-    // 清理旧 HLS
+    // 清理旧的 HLS 实例
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    setIsPlayerReady(false);
+    setPlayError(null);
 
+    // 如果浏览器支持 HLS
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -118,13 +121,34 @@ export default function LivePage() {
       });
       hls.loadSource(url);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {});
-      });
       hlsRef.current = hls;
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setIsPlayerReady(true);
+        video.play().catch((err) => {
+          console.warn('自动播放被阻止:', err);
+          setPlayError('自动播放被阻止，请点击播放按钮');
+        });
+      });
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          setPlayError('播放失败，请检查直播源是否有效');
+          console.error('HLS error:', data);
+        }
+      });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari 原生 HLS
       video.src = url;
-      video.play().catch(() => {});
+      video.addEventListener('loadedmetadata', () => {
+        setIsPlayerReady(true);
+        video.play().catch((err) => {
+          console.warn('自动播放被阻止:', err);
+          setPlayError('自动播放被阻止，请点击播放按钮');
+        });
+      });
+    } else {
+      setPlayError('您的浏览器不支持 HLS 播放');
     }
 
     return () => {
@@ -135,9 +159,8 @@ export default function LivePage() {
     };
   }, [currentSource]);
 
-  // 获取当前选中的组
+  // 获取当前组和当前频道的源
   const getCurrentGroup = () => groups.find(g => g.groupName === selectedGroup);
-  // 获取当前频道所有源
   const getCurrentChannelSources = () => {
     const group = getCurrentGroup();
     if (!group) return [];
@@ -215,10 +238,22 @@ export default function LivePage() {
         <div className="flex-1 flex flex-col min-w-0">
           {/* 视频播放器 */}
           <div className="relative bg-black flex-1 flex items-center justify-center min-h-[200px]">
-            <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay muted />
+            <video
+              ref={videoRef}
+              className="w-full h-full object-contain"
+              controls
+              autoPlay
+              muted
+              playsInline
+            />
             {currentSource && currentSource.resolution && (
               <div className="absolute top-4 right-4 bg-black/70 text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm border border-white/10">
                 {currentSource.resolution}
+              </div>
+            )}
+            {playError && (
+              <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 bg-red-600/80 text-white text-sm px-4 py-2 rounded shadow-lg">
+                {playError}
               </div>
             )}
           </div>
