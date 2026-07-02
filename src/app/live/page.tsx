@@ -115,6 +115,15 @@ export default function LivePage() {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
+        xhrSetup: (xhr, url) => {
+          // 如果 URL 以 http 开头，则通过代理
+          if (url.startsWith('http://')) {
+            const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+            xhr.open('GET', proxyUrl, true);
+          } else {
+            xhr.open('GET', url, true);
+          }
+        }
       });
       hls.loadSource(url);
       hls.attachMedia(video);
