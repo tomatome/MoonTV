@@ -8,8 +8,15 @@ export async function GET(request: NextRequest) {
   try {
     const response = await fetch(url, {
       headers: {
+        // 模拟一个常见的浏览器和操作系统
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        // 大部分直播源会校验 Referer
         'Referer': 'http://dbiptv.sn.chinamobile.com/',
+        // 增加标准请求头，让请求更真实
+        'Accept': '*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
       },
     });
     const data = await response.arrayBuffer();
