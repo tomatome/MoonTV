@@ -206,12 +206,5 @@
       "api": "https://360zy.com/api.php/provide/vod",
       "detail": "https://360zy.com"
     }
-  },
-  "custom_category": [
-    {
-      "name": "短剧",
-      "type": "tv",
-      "query": "短剧"
-    }
-  ]
+  }
 }
