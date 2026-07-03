@@ -1,4 +1,7 @@
 列表,#genre#
-aaa,https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u
-bbb,https://live.zbds.top/tv/iptv4.m3u
-ccc,https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u
+凤凰中文,https://edge2.laotv.la/live/PhxChinese/sc-gaFECQ/a0_index.m3u8
+凤凰资讯,https://edge2.laotv.la/live/PhoenixNews/sc-gaFECQ/a0_index.m3u8
+CCTV-1 综合,https://shyd.695847.xyz/cms001/ch00000090990000001022/index.m3u8
+东方卫视,https://shyd.695847.xyz/cms001/ch00000090990000001013/index.m3u8
+北京卫视,https://shyd.695847.xyz/cms001/ch00000090990000001029/index.m3u8
+湖南卫视,https://shyd.695847.xyz/cms001/ch00000090990000001026/index.m3u8
