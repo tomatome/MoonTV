@@ -177,7 +177,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     { 
       icon: FileVideo, 
       label: '短剧', 
-      href: '/search?q=短剧' 
+      href: '/search?q=短剧&sort=sources&order=desc' 
     },
     { 
       icon: Radio, 
