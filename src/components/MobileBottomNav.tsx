@@ -51,7 +51,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     { 
       icon: FileVideo, 
       label: '短剧', 
-      href: '/douban?type=shortplay' 
+      href: '/search?q=短剧' 
     },
     { 
       icon: Radio, 
